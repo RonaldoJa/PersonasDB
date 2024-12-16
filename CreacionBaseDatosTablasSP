@@ -1,0 +1,234 @@
+CREATE DATABASE GestionPersonas;
+GO
+
+-- Usar la base de datos
+USE GestionPersonas;
+GO
+
+-- Crear la tabla Personas
+CREATE TABLE Personas (
+    Identificador INT IDENTITY(1,1) PRIMARY KEY,
+    Nombres NVARCHAR(100) NOT NULL,
+    Apellidos NVARCHAR(100) NOT NULL,
+    NumeroIdentificacion NVARCHAR(50) NOT NULL,
+    Email NVARCHAR(150) NOT NULL,
+    TipoIdentificacion NVARCHAR(20) NOT NULL,
+    FechaCreacion DATETIME DEFAULT GETDATE(),
+    NumeroIdentificacionCompleto AS (TipoIdentificacion + ' ' + NumeroIdentificacion),
+    NombreCompleto AS (Nombres + ' ' + Apellidos)
+);
+
+-- Crear un procedimiento almacenado para consultar las personas creadas
+CREATE PROCEDURE sp_ConsultarPersonas
+AS
+BEGIN
+    SELECT 
+        Identificador,
+        Nombres,
+        Apellidos,
+        NumeroIdentificacion,
+        Email,
+        TipoIdentificacion,
+        FechaCreacion,
+        NumeroIdentificacionCompleto,
+        NombreCompleto
+    FROM Personas
+    ORDER BY FechaCreacion DESC;
+END;
+GO
+
+CREATE TABLE Usuario (
+    Identificador INT IDENTITY(1,1) PRIMARY KEY,
+    Usuario NVARCHAR(50) NOT NULL,
+    Pass NVARCHAR(255) NOT NULL, 
+    FechaCreacion DATETIME DEFAULT GETDATE()
+);
+
+INSERT INTO Personas (Nombres, Apellidos, NumeroIdentificacion, Email, TipoIdentificacion)
+VALUES 
+('Juan', 'Pérez', '1234567890', 'juan.perez@example.com', 'Cédula'),
+('María', 'González', '9876543210', 'maria.gonzalez@example.com', 'Pasaporte'),
+('Carlos', 'Ramírez', '555888333', 'carlos.ramirez@example.com', 'Cédula'),
+('Ana', 'Torres', '123321123', 'ana.torres@example.com', 'Pasaporte'),
+('Luis', 'Martínez', '1122334455', 'luis.martinez@example.com', 'Cédula');
+
+
+ALTER TABLE Usuario ADD PersonaId INT;
+
+
+ALTER TABLE Usuario
+ADD CONSTRAINT FK_Usuario_Persona FOREIGN KEY (PersonaId) REFERENCES Personas(Identificador);
+
+CREATE PROCEDURE sp_ConsultarUsuarios
+AS
+BEGIN
+    SELECT 
+        u.Identificador AS UsuarioId,
+        u.Usuario,
+        u.FechaCreacion AS FechaCreacionUsuario,
+        p.Identificador AS PersonaId,
+        p.Nombres,
+        p.Apellidos,
+        p.NumeroIdentificacion,
+        p.Email,
+        p.TipoIdentificacion,
+        p.FechaCreacion AS FechaCreacionPersona,
+        p.NumeroIdentificacionCompleto,
+        p.NombreCompleto
+    FROM Usuario u
+    INNER JOIN Personas p ON u.PersonaId = p.Identificador
+    ORDER BY u.FechaCreacion DESC;
+END;
+GO
+
+CREATE PROCEDURE sp_InsertarPersonaYUsuario
+    @Nombres NVARCHAR(100),
+    @Apellidos NVARCHAR(100),
+    @NumeroIdentificacion NVARCHAR(50),
+    @Email NVARCHAR(150),
+    @TipoIdentificacion NVARCHAR(20),
+    @Usuario NVARCHAR(50),
+    @Pass NVARCHAR(255)
+AS
+BEGIN
+    DECLARE @PersonaId INT;
+
+    IF EXISTS (SELECT 1 FROM Personas WHERE NumeroIdentificacion = @NumeroIdentificacion OR Email = @Email)
+    BEGIN
+        RAISERROR('Ya existe una persona con el mismo Número de Identificación o Email.', 16, 1);
+        RETURN;
+    END
+
+   
+    IF EXISTS (SELECT 1 FROM Usuario WHERE Usuario = @Usuario)
+    BEGIN
+        RAISERROR('El nombre de usuario ya está en uso.', 16, 1);
+        RETURN;
+    END
+    
+    INSERT INTO Personas (Nombres, Apellidos, NumeroIdentificacion, Email, TipoIdentificacion, FechaCreacion)
+    VALUES (@Nombres, @Apellidos, @NumeroIdentificacion, @Email, @TipoIdentificacion, GETDATE());
+
+    SET @PersonaId = SCOPE_IDENTITY();  
+
+    INSERT INTO Usuario (Usuario, Pass, FechaCreacion, PersonaId)
+    VALUES (@Usuario, @Pass, GETDATE(), @PersonaId);
+    
+    SELECT @PersonaId AS PersonaId, SCOPE_IDENTITY() AS UsuarioId;  
+END;
+GO
+
+CREATE PROCEDURE sp_LoginUsuario
+    @Usuario NVARCHAR(50)
+AS
+BEGIN
+    SELECT Usuario, Pass, PersonaId
+    FROM Usuario
+    WHERE Usuario = @Usuario;
+END;
+GO
+
+CREATE PROCEDURE sp_ConsultarUsuarioSolo
+@UsuarioId INT
+AS
+BEGIN
+    SELECT 
+        u.Identificador AS UsuarioId,
+        u.Usuario,
+        u.FechaCreacion AS FechaCreacionUsuario,
+        p.Identificador AS PersonaId,
+        p.Nombres,
+        p.Apellidos,
+        p.NumeroIdentificacion,
+        p.Email,
+        p.TipoIdentificacion,
+        p.FechaCreacion AS FechaCreacionPersona,
+        p.NumeroIdentificacionCompleto,
+        p.NombreCompleto
+    FROM Usuario u
+    INNER JOIN Personas p ON u.PersonaId = p.Identificador
+    WHERE @UsuarioId = u.Identificador;
+END;
+GO
+
+
+CREATE PROCEDURE sp_ActualizarPersona
+    @PersonaId INT,
+    @Nombres NVARCHAR(100),
+    @Apellidos NVARCHAR(100),
+    @NumeroIdentificacion NVARCHAR(50),
+    @Email NVARCHAR(150),
+    @TipoIdentificacion NVARCHAR(20)
+AS
+BEGIN
+ 
+    IF EXISTS (SELECT 1 FROM Personas WHERE (NumeroIdentificacion = @NumeroIdentificacion OR Email = @Email) AND Identificador <> @PersonaId)
+    BEGIN
+        RAISERROR('Ya existe una persona con el mismo Número de Identificación o Email.', 16, 1);
+        RETURN;
+    END
+
+    UPDATE Personas
+    SET 
+        Nombres = @Nombres,
+        Apellidos = @Apellidos,
+        NumeroIdentificacion = @NumeroIdentificacion,
+        Email = @Email,
+        TipoIdentificacion = @TipoIdentificacion
+    WHERE Identificador = @PersonaId;
+
+    SELECT 
+        Identificador,
+        Nombres,
+        Apellidos,
+        NumeroIdentificacion,
+        Email,
+        TipoIdentificacion,
+        FechaCreacion,
+        NumeroIdentificacionCompleto,
+        NombreCompleto
+    FROM Personas 
+    WHERE Identificador = @PersonaId;
+END;
+GO
+
+CREATE PROCEDURE sp_ActualizarUsuario
+    @PersonaId INT,
+    @Usuario NVARCHAR(50)
+AS
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM Personas WHERE Identificador = @PersonaId)
+    BEGIN
+        RAISERROR('La persona con el ID proporcionado no existe.', 16, 1);
+        RETURN;
+    END
+
+    IF EXISTS (SELECT 1 FROM Usuario WHERE Usuario = @Usuario AND PersonaId <> @PersonaId)
+    BEGIN
+        RAISERROR('El nombre de usuario ya está en uso.', 16, 1);
+        RETURN;
+    END
+
+    UPDATE Usuario
+    SET Usuario = @Usuario
+    WHERE PersonaId = @PersonaId;
+
+
+     SELECT 
+        u.Identificador AS UsuarioId,
+        u.Usuario,
+        u.FechaCreacion AS FechaCreacionUsuario,
+        p.Identificador AS PersonaId,
+        p.Nombres,
+        p.Apellidos,
+        p.NumeroIdentificacion,
+        p.Email,
+        p.TipoIdentificacion,
+        p.FechaCreacion AS FechaCreacionPersona,
+        p.NumeroIdentificacionCompleto,
+        p.NombreCompleto
+    FROM Usuario u
+    INNER JOIN Personas p ON u.PersonaId = p.Identificador
+    WHERE @PersonaId = p.Identificador;
+END;
+GO
